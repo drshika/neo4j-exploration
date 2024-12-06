@@ -26,7 +26,7 @@ class KnowledgeGraphClient:
             return None
 
     def validate_role_data(self, role):
-        required_fields = ['START_ID', 'END_ID', 'relation', 'weight', 'method', 'TYPE']
+        required_fields = [':START_ID', ':END_ID', 'relation', 'weight', 'method', ':TYPE']
         missing_fields = [field for field in required_fields if field not in role]
         
         if missing_fields:
@@ -44,7 +44,7 @@ class KnowledgeGraphClient:
             
             label_groups = {}
             for entity in entities:
-                labels = entity['LABEL'].replace(' ', '_').split(';')
+                labels = entity[':LABEL'].replace(' ', '_').split(';')
                 combined_label = ':'.join(labels)
                 if combined_label not in label_groups:
                     label_groups[combined_label] = []
@@ -56,7 +56,7 @@ class KnowledgeGraphClient:
                     query = f"""
                     UNWIND $batch AS entity
                     CREATE (n:{labels} {{
-                        id: entity.ID,
+                        entity_id: entity.`entity:ID`,
                         name: entity.name,
                         type: entity.type,
                         frequency: toInteger(entity.frequency)
@@ -83,7 +83,7 @@ class KnowledgeGraphClient:
             if not roles:
                 self.log_error("No roles data provided")
                 return
-                
+
             if roles and len(roles) > 0:
                 self.log_status("First role data sample:")
                 self.log_status(str(roles[0]))
@@ -94,13 +94,13 @@ class KnowledgeGraphClient:
             batch_size = 1000
             total = len(roles)
             created = 0
-            
+
             for i in range(0, total, batch_size):
                 batch = roles[i:i + batch_size]
-                
+
                 type_groups = {}
                 for role in batch:
-                    rel_type = self.sanitize_relationship_type(role['TYPE'])
+                    rel_type = self.sanitize_relationship_type(role[':TYPE'])
                     if rel_type not in type_groups:
                         type_groups[rel_type] = []
                     type_groups[rel_type].append(role)
@@ -108,15 +108,15 @@ class KnowledgeGraphClient:
                 for rel_type, roles_group in type_groups.items():
                     query = f"""
                     UNWIND $batch AS role
-                    MATCH (source:Entity {{id: role.START_ID}})
-                    MATCH (target:Entity {{id: role.END_ID}})
+                    MATCH (source {{entity_id: role.`:START_ID`}}), (target {{entity_id: role.`:END_ID`}})
                     MERGE (source)-[r:{rel_type} {{
                         relation: role.relation,
                         weight: toFloat(role.weight),
                         method: role.method
                     }}]->(target)
+                    RETURN source.entity_id, type(r), target.entity_id
                     """
-                    
+
                     tx = session.begin_transaction()
                     try:
                         tx.run(query, {'batch': roles_group})
@@ -132,11 +132,13 @@ class KnowledgeGraphClient:
                 WITH type, count(r) as count
                 RETURN type, count
                 """
-                
+
+                types = [role[':TYPE'] for role in batch]
+
                 verify_result = session.run(verify_query, {
-                    'types': [role['TYPE'] for role in batch]
+                    'types': types
                 }).data()
-                
+
                 if verify_result:
                     self.log_status(f"Verification results: {verify_result}")
                     created += len(batch)
@@ -144,7 +146,7 @@ class KnowledgeGraphClient:
                         self.log_status(f"Created {created}/{total} relationships")
                 else:
                     self.log_warning(f"Batch verification failed for relationships {i} to {i+len(batch)}")
-                    self.log_warning(f"Types being verified: {[role['TYPE'] for role in batch]}")
+                    # self.log_warning(f"Types being verified: {types}")
                         
             self.log_status("Successfully created all relationships")
         except Exception as e:
@@ -235,8 +237,8 @@ class KnowledgeGraphClient:
 if __name__ == "__main__":
     client = KnowledgeGraphClient()
     base_path = os.path.dirname(os.path.abspath(__file__))
-    entities_path = os.path.join(base_path, '..', "data/Entities.csv")
-    roles_path = os.path.join(base_path, '..', "data/Roles.csv")
+    entities_path = os.path.join(base_path, '..', "/Users/lmarini/data/combini/Entities.csv")
+    roles_path = os.path.join(base_path, '..', "/Users/lmarini/data/combini/Roles.csv")
     if client.test_connection():
         client.build_knowledge_graph(
             entities_path,

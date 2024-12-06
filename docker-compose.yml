@@ -12,8 +12,6 @@ services:
       - "7474:7474"
       - "7687:7687"
       - "8080:8080"
-    networks:
-      - kg-network
 
   client:
     build: 
@@ -27,10 +25,5 @@ services:
     depends_on:
       neo4j:
         condition: service_started
-    networks:
-      - kg-network
 
-networks:
-  kg-network:
-    name: kg-network
-    external: true
+
